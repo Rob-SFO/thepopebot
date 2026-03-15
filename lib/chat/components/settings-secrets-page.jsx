@@ -170,7 +170,7 @@ export function ApiKeysListPage() {
                     {k.keyPrefix}...
                     <span className="font-sans ml-2">
                       Created {formatDate(k.createdAt)}
-                      {k.lastUsedAt && <span> · Last used {timeAgo(k.lastUsedAt)}</span>}
+                      <span> · {k.lastUsedAt ? `Last used ${timeAgo(k.lastUsedAt)}` : 'Never used'}</span>
                     </span>
                   </div>
                   </div>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { KeyIcon, CheckIcon, PlusIcon, TrashIcon } from './icons.js';
-import { SecretRow, StatusBadge, Dialog } from './settings-shared.js';
+import { SecretRow, StatusBadge, Dialog, EmptyState, formatDate, timeAgo } from './settings-shared.js';
 import {
   getChatSettings,
   updateProviderCredential,
@@ -10,6 +10,9 @@ import {
   updateCustomProvider,
   removeCustomProvider,
   setActiveLlm,
+  createOAuthToken,
+  getOAuthTokens,
+  deleteOAuthToken,
 } from '../actions.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -308,6 +311,7 @@ export function ChatProvidersPage() {
           {Object.entries(settings.builtinProviders).map(([slug, prov]) => (
             <ProviderCard
               key={slug}
+              slug={slug}
               name={prov.name}
               credentials={prov.credentials}
               credentialStatuses={settings.credentialStatuses || []}
@@ -349,7 +353,7 @@ export function ChatProvidersPage() {
   );
 }
 
-function ProviderCard({ name, credentials, credentialStatuses, onUpdateCredential }) {
+function ProviderCard({ name, slug, credentials, credentialStatuses, onUpdateCredential }) {
   const [saving, setSaving] = useState(null);
   const statusMap = new Map(credentialStatuses.map((s) => [s.key, s.isSet]));
 
@@ -359,17 +363,14 @@ function ProviderCard({ name, credentials, credentialStatuses, onUpdateCredentia
     setSaving(null);
   };
 
-  const apiKeys = credentials.filter((c) => !c.key.toLowerCase().includes('oauth'));
-  const oauthKeys = credentials.filter((c) => c.key.toLowerCase().includes('oauth'));
-
   return (
     <div>
       <h3 className="text-sm font-medium mb-2">{name}</h3>
       <div className="space-y-2">
-        {apiKeys.length > 0 && (
+        {credentials.length > 0 && (
           <div className="rounded-lg border bg-card p-4">
             <div className="divide-y divide-border">
-              {apiKeys.map((cred) => (
+              {credentials.map((cred) => (
                 <SecretRow
                   key={cred.key}
                   label={cred.label}
@@ -382,23 +383,178 @@ function ProviderCard({ name, credentials, credentialStatuses, onUpdateCredentia
             </div>
           </div>
         )}
-        {oauthKeys.length > 0 && (
-          <div className="rounded-lg border bg-card p-4">
-            <div className="divide-y divide-border">
-              {oauthKeys.map((cred) => (
-                <SecretRow
-                  key={cred.key}
-                  label={cred.label}
-                  description={cred.description}
-                  isSet={statusMap.get(cred.key) || false}
-                  saving={saving === cred.key}
-                  onSave={(value) => handleSave(cred.key, value)}
-                />
-              ))}
-            </div>
-          </div>
+        {slug === 'anthropic' && <OAuthTokenList />}
+      </div>
+    </div>
+  );
+}
+
+function OAuthTokenList() {
+  const [tokens, setTokens] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newToken, setNewToken] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [error, setError] = useState(null);
+
+  const loadTokens = async () => {
+    try {
+      const result = await getOAuthTokens();
+      setTokens(Array.isArray(result) ? result : []);
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTokens();
+  }, []);
+
+  const handleCreate = async () => {
+    if (creating || !newName.trim() || !newToken.trim()) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const result = await createOAuthToken(newName.trim(), newToken.trim());
+      if (result.error) {
+        setError(result.error);
+      } else {
+        setNewName('');
+        setNewToken('');
+        setShowCreateForm(false);
+        await loadTokens();
+      }
+    } catch {
+      setError('Failed to create OAuth token');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (confirmDelete !== id) {
+      setConfirmDelete(id);
+      setTimeout(() => setConfirmDelete(null), 3000);
+      return;
+    }
+    try {
+      await deleteOAuthToken(id);
+      setTokens((prev) => prev.filter((t) => t.id !== id));
+      setConfirmDelete(null);
+    } catch {
+      // ignore
+    }
+  };
+
+  if (loading) {
+    return <div className="h-16 animate-pulse rounded-md bg-border/50" />;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <span className="text-sm font-medium">OAuth Tokens</span>
+          <p className="text-xs text-muted-foreground">For Claude Code CLI containers (Pro/Max subscription)</p>
+        </div>
+        {!showCreateForm && (
+          <button
+            onClick={() => setShowCreateForm(true)}
+            className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium border border-border text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 transition-colors"
+          >
+            <PlusIcon size={14} />
+            Add token
+          </button>
         )}
       </div>
+
+      {error && <p className="text-sm text-destructive mb-2">{error}</p>}
+
+      {showCreateForm && (
+        <div className="rounded-lg border border-dashed bg-card p-4 mb-2">
+          <div className="space-y-2">
+            <div>
+              <label className="text-xs font-medium mb-1 block">Name</label>
+              <input
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="e.g. Account 1, Pro subscription..."
+                autoFocus
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block">Token</label>
+              <input
+                type="password"
+                value={newToken}
+                onChange={(e) => setNewToken(e.target.value)}
+                placeholder="Paste OAuth token..."
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              />
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                onClick={() => { setShowCreateForm(false); setNewName(''); setNewToken(''); }}
+                className="rounded-md px-2.5 py-1.5 text-xs font-medium border border-border text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreate}
+                disabled={!newName.trim() || !newToken.trim() || creating}
+                className="rounded-md px-2.5 py-1.5 text-xs font-medium bg-foreground text-background hover:bg-foreground/90 disabled:opacity-50 transition-colors"
+              >
+                {creating ? 'Adding...' : 'Add'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tokens.length > 0 ? (
+        <div className="rounded-lg border bg-card">
+          <div className="divide-y divide-border">
+            {tokens.map((t) => (
+              <div key={t.id} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-4">
+                <div className="flex items-center gap-2">
+                  <KeyIcon size={14} className="text-muted-foreground shrink-0" />
+                  <div>
+                    <div className="text-sm font-medium">{t.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Created {formatDate(t.createdAt)}
+                      <span> · {t.lastUsedAt ? `Last used ${timeAgo(t.lastUsedAt)}` : 'Never used'}</span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleDelete(t.id)}
+                  className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium border shrink-0 self-start sm:self-auto transition-colors ${
+                    confirmDelete === t.id
+                      ? 'border-destructive text-destructive hover:bg-destructive/10'
+                      : 'border-border text-muted-foreground hover:text-destructive hover:border-destructive/50'
+                  }`}
+                >
+                  <TrashIcon size={12} />
+                  {confirmDelete === t.id ? 'Confirm' : 'Delete'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : !showCreateForm && (
+        <EmptyState
+          message="No OAuth tokens configured"
+          actionLabel="Add OAuth token"
+          onAction={() => setShowCreateForm(true)}
+        />
+      )}
     </div>
   );
 }

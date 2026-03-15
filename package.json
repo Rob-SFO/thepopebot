@@ -15,6 +15,7 @@
     "./auth/actions": "./lib/auth/actions.js",
     "./chat/api": "./lib/chat/api.js",
     "./db": "./lib/db/index.js",
+    "./db/oauth-tokens": "./lib/db/oauth-tokens.js",
     "./chat": "./lib/chat/components/index.js",
     "./chat/actions": "./lib/chat/actions.js",
     "./code": "./lib/code/index.js",

@@ -6,7 +6,16 @@ import { MessageIcon, CodeIcon, TrashIcon, SearchIcon, PlusIcon, MoreHorizontalI
 import { getChats, deleteChat, renameChat, starChat } from '../actions.js';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from './ui/dropdown-menu.js';
 import { ConfirmDialog } from './ui/confirm-dialog.js';
+import { useFeatures } from './features-context.js';
 import { cn } from '../utils.js';
+
+const isCodeChat = (chat) => Boolean(chat.codeWorkspaceId);
+
+const BASE_FILTERS = [
+  { value: 'all', label: 'All', icon: null },
+  { value: 'chat', label: 'Chat', icon: MessageIcon },
+];
+const CODE_FILTER = { value: 'code', label: 'Code', icon: CodeIcon };
 
 function groupChatsByDate(chats) {
   const now = new Date();
@@ -63,6 +72,9 @@ export function ChatsPage({ session }) {
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState('all');
+  const features = useFeatures();
+  const filters = features?.codeWorkspace ? [...BASE_FILTERS, CODE_FILTER] : BASE_FILTERS;
 
   const navigateToChat = (id) => {
     window.location.href = id ? `/chat/${id}` : '/';
@@ -145,9 +157,13 @@ export function ChatsPage({ session }) {
     }
   };
 
+  const typeFiltered = !filter || filter === 'all' ? chats
+    : filter === 'code' ? chats.filter(isCodeChat)
+    : chats.filter((c) => !isCodeChat(c));
+
   const filtered = query
-    ? chats.filter((c) => c.title?.toLowerCase().includes(query.toLowerCase()))
-    : chats;
+    ? typeFiltered.filter((c) => c.title?.toLowerCase().includes(query.toLowerCase()))
+    : typeFiltered;
 
   const grouped = groupChatsByDate(filtered);
 
@@ -179,6 +195,25 @@ export function ChatsPage({ session }) {
         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
           <SearchIcon size={16} />
         </div>
+      </div>
+
+      {/* Type filter */}
+      <div className="flex items-center gap-1 mb-4">
+        {filters.map(({ value, label, icon: Icon }) => (
+          <button
+            key={value}
+            onClick={() => setFilter(value)}
+            className={cn(
+              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+              filter === value
+                ? 'bg-foreground text-background'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+            )}
+          >
+            {Icon && <Icon size={14} />}
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Count */}

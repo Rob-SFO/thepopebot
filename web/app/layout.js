@@ -1,5 +1,6 @@
 import './globals.css';
 import { ThemeProvider, FeaturesProvider } from 'thepopebot/chat';
+import { getOAuthTokenCount } from 'thepopebot/db/oauth-tokens';
 
 export const metadata = {
   title: 'ThePopeBot',
@@ -13,9 +14,18 @@ export const viewport = {
   viewportFit: 'cover',
 };
 
+function hasOAuthToken() {
+  try {
+    return getOAuthTokenCount() > 0;
+  } catch {
+    return false;
+  }
+}
+
+const hasOAuth = hasOAuthToken() || !!process.env.CLAUDE_CODE_OAUTH_TOKEN;
 const features = {
-  codeWorkspace: !!process.env.CLAUDE_CODE_OAUTH_TOKEN,
-  clusterWorkspace: !!process.env.CLAUDE_CODE_OAUTH_TOKEN,
+  codeWorkspace: hasOAuth,
+  clusterWorkspace: hasOAuth,
 };
 
 export default function RootLayout({ children }) {

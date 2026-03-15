@@ -77,7 +77,7 @@ function formatContent(content) {
   return JSON.stringify(content, null, 2);
 }
 
-function ToolCall({ part }) {
+function ToolCall({ part, className }) {
   const [expanded, setExpanded] = useState(false);
 
   const toolName = part.toolName || (part.type?.startsWith('tool-') ? part.type.slice(5) : 'tool');
@@ -104,7 +104,7 @@ function ToolCall({ part }) {
   }, [toolName, isDone, part.output]);
 
   return (
-    <div className="my-1 rounded-lg border border-border bg-background">
+    <div className={`my-1 rounded-lg border border-border bg-background${className ? ` ${className}` : ''}`}>
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/50 rounded-lg"
@@ -174,6 +174,7 @@ export function PreviewMessage({ message, isLoading, onRetry, onEdit }) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState('');
   const textareaRef = useRef(null);
+  const [showWorking, setShowWorking] = useState(false);
 
   // Extract text from parts (AI SDK v5+) or fall back to content
   const text =
@@ -183,6 +184,24 @@ export function PreviewMessage({ message, isLoading, onRetry, onEdit }) {
       .join('\n') ||
     message.content ||
     '';
+
+  const partsLength = message.parts?.length || 0;
+  const textLength = text.length;
+  let lastToolPart;
+  for (let i = (message.parts?.length || 0) - 1; i >= 0; i--) {
+    if (message.parts[i].type?.startsWith('tool-')) { lastToolPart = message.parts[i]; break; }
+  }
+  const hasRunningTool = (lastToolPart?.state === 'input-streaming' || lastToolPart?.state === 'input-available') || false;
+
+  useEffect(() => {
+    if (!isLoading || hasRunningTool) {
+      setShowWorking(false);
+      return;
+    }
+    setShowWorking(false);
+    const timer = setTimeout(() => setShowWorking(true), 500);
+    return () => clearTimeout(timer);
+  }, [isLoading, partsLength, textLength, hasRunningTool]);
 
   // Extract file parts
   const fileParts = message.parts?.filter((p) => p.type === 'file') || [];
@@ -329,32 +348,42 @@ export function PreviewMessage({ message, isLoading, onRetry, onEdit }) {
               ) : (
                 <>
                   {message.parts?.length > 0 ? (
-                    message.parts.map((part, i) => {
-                      if (part.type === 'text') {
-                        const prevPart = message.parts[i - 1];
-                        const afterTool = prevPart?.type?.startsWith('tool-');
-                        return <Streamdown key={i} className={afterTool ? 'mt-3' : undefined} mode={isLoading ? 'streaming' : 'static'} linkSafety={linkSafety}>{part.text}</Streamdown>;
-                      }
-                      if (part.type === 'file') {
-                        if (part.mediaType?.startsWith('image/')) {
+                    <>
+                      {message.parts.map((part, i) => {
+                        if (part.type === 'text') {
+                          const prevPart = message.parts[i - 1];
+                          const afterTool = prevPart?.type?.startsWith('tool-');
+                          return <Streamdown key={i} className={afterTool ? 'mt-3' : undefined} mode={isLoading ? 'streaming' : 'static'} linkSafety={linkSafety}>{part.text}</Streamdown>;
+                        }
+                        if (part.type === 'file') {
+                          if (part.mediaType?.startsWith('image/')) {
+                            return (
+                              <div key={i} className="mb-2">
+                                <img src={part.url} alt="attachment" className="max-h-64 max-w-full rounded-lg object-contain" />
+                              </div>
+                            );
+                          }
                           return (
-                            <div key={i} className="mb-2">
-                              <img src={part.url} alt="attachment" className="max-h-64 max-w-full rounded-lg object-contain" />
+                            <div key={i} className="mb-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs bg-foreground/10">
+                              <FileTextIcon size={12} />
+                              <span className="max-w-[150px] truncate">{part.name || part.mediaType || 'file'}</span>
                             </div>
                           );
                         }
-                        return (
-                          <div key={i} className="mb-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs bg-foreground/10">
-                            <FileTextIcon size={12} />
-                            <span className="max-w-[150px] truncate">{part.name || part.mediaType || 'file'}</span>
-                          </div>
-                        );
-                      }
-                      if (part.type?.startsWith('tool-')) {
-                        return <ToolCall key={part.toolCallId || i} part={part} />;
-                      }
-                      return null;
-                    })
+                        if (part.type?.startsWith('tool-')) {
+                          const prevPart = message.parts[i - 1];
+                          const afterText = prevPart?.type === 'text';
+                          return <ToolCall key={part.toolCallId || i} part={part} className={afterText ? 'mt-3' : undefined} />;
+                        }
+                        return null;
+                      })}
+                      {showWorking && (
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <SpinnerIcon size={14} />
+                          <span>Working...</span>
+                        </div>
+                      )}
+                    </>
                   ) : text ? (
                     <Streamdown mode={isLoading ? 'streaming' : 'static'} linkSafety={linkSafety}>{text}</Streamdown>
                   ) : isLoading && !hasToolParts ? (
